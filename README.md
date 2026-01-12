@@ -50,6 +50,36 @@ The proxy server:
 - Maintains keep-alive connections for better performance
 - Supports up to 200 concurrent streams
 
+#### Option 3: Deploy to Vercel (Production)
+
+Deploy the proxy as a serverless edge function for global, scalable performance:
+
+1. **Install Vercel CLI** (if not already installed):
+```bash
+npm install -g vercel
+```
+
+2. **Deploy to Vercel**:
+```bash
+vercel
+```
+
+3. **Access your deployment**:
+   - **Health check**: `https://your-domain.vercel.app/api/server`
+   - **Proxy endpoint**: `https://your-domain.vercel.app/api/server?url=<video-url>`
+
+The Vercel edge function:
+- Automatically scales based on demand
+- Runs on Vercel's global edge network
+- Supports up to 100 concurrent streams per region
+- 25-second timeout limit (edge runtime requirement)
+- Health check endpoint for monitoring
+
+**Automatic Proxy Switching**: The player automatically detects the environment:
+- 🏠 **Local development**: Uses `http://localhost:4001/proxy`
+- 🚀 **Production (Vercel)**: Uses your Vercel edge function
+- No manual configuration needed!
+
 ## Usage
 
 1. **Enter Video URL**: Paste a direct video URL (MP4, WebM, OGG, HLS, DASH)
@@ -78,7 +108,8 @@ The proxy server:
 - **`index.html`** - Main application interface
 - **`player.js`** - Video player logic and buffering engine
 - **`styles.css`** - Styling and animations
-- **`server.js`** - Optional CORS proxy server
+- **`server.js`** - Node.js CORS proxy server (local development)
+- **`api/server.js`** - Vercel edge function (production deployment)
 
 ### Key Technologies
 
