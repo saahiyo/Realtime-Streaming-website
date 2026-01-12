@@ -80,7 +80,12 @@ class StreamFlowPlayer {
         if (!url) return;
 
         if (this.useProxyCheckbox?.checked) {
-            url = `http://localhost:4001/proxy?url=${encodeURIComponent(url)}`;
+            // Automatically use Vercel edge function in production, localhost in dev
+            const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const proxyBase = isLocalhost 
+                ? 'http://localhost:4001/proxy' 
+                : 'https://streamflow-rho.vercel.app/api/server';
+            url = `${proxyBase}?url=${encodeURIComponent(url)}`;
         }
 
         this.currentUrl = url;
