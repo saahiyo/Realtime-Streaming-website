@@ -23,6 +23,7 @@ class StreamFlowPlayer {
         this.errorOverlay = document.getElementById('errorOverlay');
         this.errorText = document.getElementById('errorText');
         this.bufferIndicator = document.getElementById('bufferIndicator');
+        this.osd = document.getElementById('osd');
 
         // Controls
         this.playPauseBtn = document.getElementById('playPauseBtn');
@@ -56,6 +57,9 @@ class StreamFlowPlayer {
         // Buffer targets (IMPORTANT)
         this.TARGET_BUFFER = 45; // seconds
         this.LOW_BUFFER = 10;
+
+        // OSD timeout
+        this.osdTimeout = null;
 
         this.init();
     }
@@ -121,6 +125,83 @@ class StreamFlowPlayer {
         this.pipBtn.addEventListener('click', () => this.togglePiP());
 
         this.progressContainer.addEventListener('click', e => this.seek(e));
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => this.handleKeyboard(e));
+    }
+
+    handleKeyboard(e) {
+        // Don't handle keyboard shortcuts if user is typing in an input
+        if (e.target.tagName === 'INPUT') return;
+
+        switch(e.key.toLowerCase()) {
+            case ' ':
+            case 'k':
+                e.preventDefault();
+                this.togglePlay();
+                this.showOSD(this.video.paused ? '▶️ Play' : '⏸️ Pause');
+                break;
+            
+            case 'f':
+                e.preventDefault();
+                this.toggleFullscreen();
+                this.showOSD(document.fullscreenElement ? '🔲 Fullscreen' : '⬜ Exit Fullscreen');
+                break;
+            
+            case 'm':
+                e.preventDefault();
+                this.video.muted = !this.video.muted;
+                this.showOSD(this.video.muted ? '🔇 Muted' : '🔊 Unmuted');
+                break;
+            
+            case 'p':
+                e.preventDefault();
+                this.togglePiP();
+                this.showOSD('📺 Picture-in-Picture');
+                break;
+            
+            case 'arrowleft':
+                e.preventDefault();
+                this.seekBy(-10);
+                this.showOSD('⏪ -10s');
+                break;
+            
+            case 'arrowright':
+                e.preventDefault();
+                this.seekBy(10);
+                this.showOSD('⏩ +10s');
+                break;
+            
+            case 'arrowup':
+                e.preventDefault();
+                this.video.volume = Math.min(1, this.video.volume + 0.1);
+                this.volumeSlider.value = this.video.volume;
+                this.showOSD(`🔊 Volume: ${Math.round(this.video.volume * 100)}%`);
+                break;
+            
+            case 'arrowdown':
+                e.preventDefault();
+                this.video.volume = Math.max(0, this.video.volume - 0.1);
+                this.volumeSlider.value = this.video.volume;
+                this.showOSD(`🔉 Volume: ${Math.round(this.video.volume * 100)}%`);
+                break;
+            
+            case '0':
+            case '1':
+            case '2':
+            case '3':
+            case '4':
+            case '5':
+            case '6':
+            case '7':
+            case '8':
+            case '9':
+                e.preventDefault();
+                const percent = parseInt(e.key) / 10;
+                this.video.currentTime = this.video.duration * percent;
+                this.showOSD(`⏱️ Jump to ${percent * 100}%`);
+                break;
+        }
     }
 
     setupVideoEvents() {
@@ -318,6 +399,22 @@ class StreamFlowPlayer {
             playIcon.style.display = 'none';
             pauseIcon.style.display = 'block';
         }
+    }
+
+    showOSD(message) {
+        // Clear any existing timeout
+        if (this.osdTimeout) {
+            clearTimeout(this.osdTimeout);
+        }
+
+        // Show the OSD with the message
+        this.osd.textContent = message;
+        this.osd.classList.add('show');
+
+        // Hide after 1 second
+        this.osdTimeout = setTimeout(() => {
+            this.osd.classList.remove('show');
+        }, 1000);
     }
 }
 
