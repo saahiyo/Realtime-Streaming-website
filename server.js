@@ -1,222 +1,252 @@
 /**
- * StreamFlow Proxy Server
- * Bypasses CORS and hotlink restrictions for video streaming
+ * StreamFlow Proxy — tuned for aggressive next-chunk buffering
  */
 
 const http = require('http');
 const https = require('https');
-const url = require('url');
+const { URL } = require('url');
 const path = require('path');
 const fs = require('fs');
+const stream = require('stream');
+const { pipeline, PassThrough } = stream;
+const { promisify } = require('util');
+const pipe = promisify(pipeline);
 
-const PORT = 4000;
+const PORT = process.env.PORT || 4001;
 
-// MIME types for serving static files
-const MIME_TYPES = {
-    '.html': 'text/html',
-    '.css': 'text/css',
-    '.js': 'application/javascript',
-    '.json': 'application/json',
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.svg': 'image/svg+xml',
-    '.ico': 'image/x-icon'
-};
+// Performance tuning
+const MAX_CONCURRENT = 200;
+const REQUEST_TIMEOUT_MS = 30_000;
+const KEEPALIVE_MAX_SOCKETS = 500;
+
+// Keep-alive agents
+const httpAgent = new http.Agent({
+    keepAlive: true,
+    maxSockets: KEEPALIVE_MAX_SOCKETS
+});
+const httpsAgent = new https.Agent({
+    keepAlive: true,
+    maxSockets: KEEPALIVE_MAX_SOCKETS
+});
+
+let activeRequests = 0;
 
 const server = http.createServer(async (req, res) => {
-    const parsedUrl = url.parse(req.url, true);
-    const pathname = parsedUrl.pathname;
-    
-    // Add CORS headers to all responses
+    // 🔴 Disable Nagle (critical for streaming)
+    req.socket.setNoDelay(true);
+
+    // CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type');
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
-    
-    // Handle preflight requests
+
+    // 🔴 Always expose these
+    res.setHeader(
+        'Access-Control-Expose-Headers',
+        'Content-Length, Content-Range, Accept-Ranges'
+    );
+
+    // 🔴 FORCE byte-range support
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    // 🔴 Explicit keep-alive
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Keep-Alive', 'timeout=60');
+
     if (req.method === 'OPTIONS') {
         res.writeHead(200);
         res.end();
         return;
     }
-    
-    // Proxy endpoint: /proxy?url=VIDEO_URL
-    if (pathname === '/proxy') {
-        const videoUrl = parsedUrl.query.url;
-        
+
+    const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
+
+    if (parsedUrl.pathname === '/proxy') {
+        const videoUrl = parsedUrl.searchParams.get('url');
         if (!videoUrl) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Missing url parameter' }));
             return;
         }
-        
-        console.log(`\n🎬 Proxying: ${videoUrl}`);
-        
+
+        if (activeRequests >= MAX_CONCURRENT) {
+            res.writeHead(503, { 'Retry-After': '5' });
+            res.end('Server busy');
+            return;
+        }
+
+        activeRequests++;
         try {
             await proxyVideo(videoUrl, req, res);
-        } catch (error) {
-            console.error('❌ Proxy error:', error.message);
-            // Only send error if headers haven't been sent
-            if (!res.headersSent) {
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: error.message }));
-            }
+        } finally {
+            activeRequests--;
         }
         return;
     }
-    
-    // Serve static files
-    let filePath = pathname === '/' ? '/index.html' : pathname;
+
+    // Static files
+    let filePath = parsedUrl.pathname === '/' ? '/index.html' : parsedUrl.pathname;
     filePath = path.join(__dirname, filePath);
-    
-    // Security: prevent directory traversal
+
     if (!filePath.startsWith(__dirname)) {
         res.writeHead(403);
         res.end('Forbidden');
         return;
     }
-    
-    const ext = path.extname(filePath);
-    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-    
+
     fs.readFile(filePath, (err, data) => {
         if (err) {
-            if (err.code === 'ENOENT') {
-                res.writeHead(404);
-                res.end('File not found');
-            } else {
-                res.writeHead(500);
-                res.end('Server error');
-            }
+            res.writeHead(err.code === 'ENOENT' ? 404 : 500);
+            res.end();
             return;
         }
-        
-        res.writeHead(200, { 'Content-Type': contentType });
+        res.writeHead(200);
         res.end(data);
     });
 });
 
-function proxyVideo(videoUrl, clientReq, clientRes) {
+async function proxyVideo(videoUrl, clientReq, clientRes) {
+    const src = new URL(videoUrl);
+    const isHttps = src.protocol === 'https:';
+    const agent = isHttps ? httpsAgent : httpAgent;
+
+    const headers = {
+        'User-Agent': clientReq.headers['user-agent'] || 'StreamFlow/1.0',
+        'Accept': '*/*',
+        'Connection': 'keep-alive',
+        'Referer': `${src.protocol}//${src.hostname}/`
+    };
+
+    if (clientReq.headers.range) {
+        headers.Range = clientReq.headers.range;
+    }
+
+    const options = {
+        protocol: src.protocol,
+        hostname: src.hostname,
+        port: src.port || (isHttps ? 443 : 80),
+        path: src.pathname + src.search,
+        method: clientReq.method === 'HEAD' ? 'HEAD' : 'GET',
+        headers,
+        agent,
+        timeout: REQUEST_TIMEOUT_MS
+    };
+
+    const protocol = isHttps ? https : http;
+
     return new Promise((resolve, reject) => {
-        const parsedUrl = url.parse(videoUrl);
-        const protocol = parsedUrl.protocol === 'https:' ? https : http;
-        
-        // Forward Range header for seeking support
-        const headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': '*/*',
-            'Accept-Encoding': 'identity',
-            'Connection': 'keep-alive',
-            'Referer': `${parsedUrl.protocol}//${parsedUrl.hostname}/`
+        let upstreamReq;
+        let isResolved = false;
+
+        const cleanup = () => {
+            if (upstreamReq && !upstreamReq.destroyed) {
+                upstreamReq.destroy();
+            }
         };
-        
-        // Forward Range header for seeking
-        if (clientReq.headers.range) {
-            headers['Range'] = clientReq.headers.range;
-            console.log(`📍 Range: ${clientReq.headers.range}`);
-        }
-        
-        const options = {
-            hostname: parsedUrl.hostname,
-            port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
-            path: parsedUrl.path,
-            method: clientReq.method || 'GET',
-            headers: headers,
-            timeout: 30000
-        };
-        
-        const proxyReq = protocol.request(options, (proxyRes) => {
-            console.log(`📥 Response: ${proxyRes.statusCode}`);
-            
-            // Handle redirects
-            if (proxyRes.statusCode >= 300 && proxyRes.statusCode < 400 && proxyRes.headers.location) {
-                let redirectUrl = proxyRes.headers.location;
-                // Handle relative redirects
-                if (redirectUrl.startsWith('/')) {
-                    redirectUrl = `${parsedUrl.protocol}//${parsedUrl.hostname}${redirectUrl}`;
-                }
-                console.log(`🔄 Redirect: ${redirectUrl}`);
-                proxyVideo(redirectUrl, clientReq, clientRes)
-                    .then(resolve)
-                    .catch(reject);
-                return;
-            }
-            
-            // Forward response headers
-            const responseHeaders = {
-                'Content-Type': proxyRes.headers['content-type'] || 'video/mp4',
-                'Accept-Ranges': 'bytes',
-                'Cache-Control': 'no-cache'
-            };
-            
-            if (proxyRes.headers['content-length']) {
-                responseHeaders['Content-Length'] = proxyRes.headers['content-length'];
-            }
-            
-            if (proxyRes.headers['content-range']) {
-                responseHeaders['Content-Range'] = proxyRes.headers['content-range'];
-            }
-            
-            // Use appropriate status code
-            const statusCode = proxyRes.statusCode;
-            
-            if (!clientRes.headersSent) {
-                clientRes.writeHead(statusCode, responseHeaders);
-            }
-            
-            // Pipe the video stream to client
-            proxyRes.pipe(clientRes);
-            
-            proxyRes.on('end', () => {
-                console.log('✅ Done');
+
+        const safeResolve = () => {
+            if (!isResolved) {
+                isResolved = true;
+                cleanup();
                 resolve();
-            });
-            
-            proxyRes.on('error', (err) => {
-                console.error('Stream error:', err.message);
-                if (!clientRes.headersSent) {
-                    reject(err);
+            }
+        };
+
+        const safeReject = (err) => {
+            if (!isResolved) {
+                isResolved = true;
+                cleanup();
+                // Don't reject on client-side aborts
+                if (err.code === 'ECONNRESET' || err.code === 'ERR_STREAM_PREMATURE_CLOSE') {
+                    console.log('Client aborted request');
+                    resolve();
                 } else {
-                    resolve(); // Already streaming, just end
+                    reject(err);
                 }
-            });
-        });
-        
-        proxyReq.on('timeout', () => {
-            console.error('⏱️ Request timeout');
-            proxyReq.destroy();
-            reject(new Error('Request timeout'));
-        });
-        
-        proxyReq.on('error', (err) => {
-            console.error('Request error:', err.message);
-            reject(err);
-        });
-        
+            }
+        };
+
         // Handle client disconnect
         clientReq.on('close', () => {
-            proxyReq.destroy();
+            safeResolve();
         });
-        
+
         clientRes.on('close', () => {
-            proxyReq.destroy();
+            safeResolve();
         });
-        
-        proxyReq.end();
+
+        upstreamReq = protocol.request(options, upstreamRes => {
+            // Redirects
+            if (
+                upstreamRes.statusCode >= 300 &&
+                upstreamRes.statusCode < 400 &&
+                upstreamRes.headers.location
+            ) {
+                upstreamReq.destroy();
+                proxyVideo(
+                    new URL(upstreamRes.headers.location, src).toString(),
+                    clientReq,
+                    clientRes
+                ).then(resolve).catch(reject);
+                return;
+            }
+
+            const headersOut = {
+                'Content-Type': upstreamRes.headers['content-type'] || 'video/mp4',
+                'Content-Length': upstreamRes.headers['content-length'],
+                'Content-Range': upstreamRes.headers['content-range'],
+                'Accept-Ranges': 'bytes',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive'
+            };
+
+            clientRes.writeHead(upstreamRes.statusCode || 200, headersOut);
+
+            if (options.method === 'HEAD') {
+                clientRes.end();
+                resolve();
+                return;
+            }
+
+            // 🔴 Bigger buffer = faster chunk flow
+            const pass = new PassThrough({
+                highWaterMark: 256 * 1024 // 256 KB
+            });
+
+            pipeline(upstreamRes, pass, clientRes, err => {
+                if (err) {
+                    safeReject(err);
+                } else {
+                    safeResolve();
+                }
+            });
+        });
+
+        upstreamReq.on('error', safeReject);
+        upstreamReq.on('timeout', () => {
+            safeReject(new Error('Request timeout'));
+        });
+        upstreamReq.end();
     });
 }
 
+// Global error handlers
+process.on('unhandledRejection', (err) => {
+    console.error('Unhandled rejection:', err.message);
+    // Don't crash on network errors
+    if (err.code !== 'ECONNRESET' && err.code !== 'ERR_STREAM_PREMATURE_CLOSE') {
+        console.error(err.stack);
+    }
+});
+
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught exception:', err.message);
+    if (err.code !== 'ECONNRESET' && err.code !== 'ERR_STREAM_PREMATURE_CLOSE') {
+        console.error(err.stack);
+        process.exit(1);
+    }
+});
+
 server.listen(PORT, () => {
-    console.log(`
-╔════════════════════════════════════════════════════════╗
-║                                                        ║
-║   🎬 StreamFlow Proxy Server                          ║
-║                                                        ║
-║   Open:   http://localhost:${PORT}                       ║
-║   Proxy:  http://localhost:${PORT}/proxy?url=VIDEO_URL   ║
-║                                                        ║
-║   Press Ctrl+C to stop                                 ║
-║                                                        ║
-╚════════════════════════════════════════════════════════╝
-    `);
+    console.log(`🚀 StreamFlow Proxy running on http://localhost:${PORT}`);
 });
