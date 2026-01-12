@@ -34,8 +34,11 @@ export default async function handler(req) {
         });
     }
 
-    // Health check endpoint
-    if (url.pathname === '/api/health' || url.pathname === '/api/server/health') {
+    // Extract target URL from query parameter
+    const targetUrl = url.searchParams.get('url');
+    
+    // Health check endpoint (when no url parameter is provided)
+    if (!targetUrl) {
         return new Response(
             JSON.stringify({
                 status: 'healthy',
@@ -43,6 +46,7 @@ export default async function handler(req) {
                 timestamp: new Date().toISOString(),
                 activeRequests,
                 maxConcurrent: MAX_CONCURRENT,
+                usage: 'Add ?url=<video-url> to proxy a video stream',
             }),
             {
                 status: 200,
@@ -50,22 +54,6 @@ export default async function handler(req) {
                     ...corsHeaders,
                     'Content-Type': 'application/json',
                     'Cache-Control': 'no-cache, no-store, must-revalidate',
-                },
-            }
-        );
-    }
-
-    // Extract target URL from query parameter
-    const targetUrl = url.searchParams.get('url');
-    
-    if (!targetUrl) {
-        return new Response(
-            JSON.stringify({ error: 'Missing url parameter' }),
-            {
-                status: 400,
-                headers: {
-                    ...corsHeaders,
-                    'Content-Type': 'application/json',
                 },
             }
         );
