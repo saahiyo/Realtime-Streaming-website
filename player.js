@@ -40,6 +40,7 @@ class StreamFlowPlayer {
         this.progressPlayed = document.getElementById('progressPlayed');
         this.progressBuffer = document.getElementById('progressBuffer');
         this.progressThumb = document.getElementById('progressThumb');
+        this.progressTooltip = document.getElementById('progressTooltip');
 
         // Stats
         this.currentTimeEl = document.getElementById('currentTime');
@@ -125,6 +126,12 @@ class StreamFlowPlayer {
         this.pipBtn.addEventListener('click', () => this.togglePiP());
 
         this.progressContainer.addEventListener('click', e => this.seek(e));
+        
+        // Progress bar tooltip
+        this.progressContainer.addEventListener('mousemove', e => this.updateProgressTooltip(e));
+        this.progressContainer.addEventListener('mouseleave', () => {
+            this.progressTooltip.style.opacity = '0';
+        });
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => this.handleKeyboard(e));
@@ -199,6 +206,7 @@ class StreamFlowPlayer {
                 e.preventDefault();
                 const percent = parseInt(e.key) / 10;
                 this.video.currentTime = this.video.duration * percent;
+                this.updateProgress(); // Immediate visual feedback
                 this.showOSD(`⏱️ Jump to ${percent * 100}%`);
                 break;
         }
@@ -312,12 +320,16 @@ class StreamFlowPlayer {
             0,
             Math.min(this.video.currentTime + seconds, this.video.duration)
         );
+        // Immediate visual feedback
+        this.updateProgress();
     }
 
     seek(e) {
         const rect = this.progressContainer.getBoundingClientRect();
         const pct = (e.clientX - rect.left) / rect.width;
         this.video.currentTime = pct * this.video.duration;
+        // Immediate visual feedback
+        this.updateProgress();
     }
 
     toggleFullscreen() {
@@ -332,6 +344,21 @@ class StreamFlowPlayer {
                 ? await document.exitPictureInPicture()
                 : await this.video.requestPictureInPicture();
         } catch {}
+    }
+
+    updateProgressTooltip(e) {
+        if (!this.video.duration) return;
+
+        const rect = this.progressContainer.getBoundingClientRect();
+        const percent = (e.clientX - rect.left) / rect.width;
+        const time = percent * this.video.duration;
+        
+        // Update tooltip text
+        this.progressTooltip.textContent = this.formatTime(time);
+        
+        // Position tooltip
+        this.progressTooltip.style.left = `${percent * 100}%`;
+        this.progressTooltip.style.opacity = '1';
     }
 
     /* =======================
