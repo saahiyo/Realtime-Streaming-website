@@ -66,7 +66,8 @@ export default async function handler(req) {
   }
 
   // ================= GENERATE SIGNED URL ENDPOINT =================
-  if (url.pathname.endsWith('/generate-signed-url') && req.method === 'POST') {
+  const action = url.searchParams.get('action');
+  if (action === 'sign' && req.method === 'POST') {
     if (!STREAM_SECRET) {
       return new Response(
         JSON.stringify({ error: 'Server configuration error' }),
