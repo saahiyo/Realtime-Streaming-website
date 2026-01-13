@@ -87,7 +87,9 @@ class StreamFlowPlayer {
 
     isTeraboxUrl(url) {
         // Check if the URL is a Terabox share link
-        return url.includes('teraboxshare.com/s/') || url.includes('1024terabox.com/s/');
+        return url.includes('teraboxshare.com/s/') || 
+               url.includes('1024terabox.com/s/') || 
+               url.includes('terasharelink.com/s/');
     }
 
     async getTeraboxDownloadLink(teraboxUrl) {
