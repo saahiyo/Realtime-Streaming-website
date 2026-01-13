@@ -1,5 +1,6 @@
 /**
  * StreamFlow Proxy — hardened & optimized for byte-range streaming
+ * Now with HMAC-based security for signed URLs
  */
 
 const http = require('http');
@@ -8,8 +9,14 @@ const { URL } = require('url');
 const path = require('path');
 const fs = require('fs');
 const { PassThrough, pipeline } = require('stream');
+const crypto = require('crypto');
 
 const PORT = process.env.PORT || 4001;
+
+// Security config
+const STREAM_SECRET = process.env.STREAM_SECRET || 'dev-secret-key-change-in-production';
+const MAX_SKEW_SECONDS = 300; // 5 minutes
+const MAX_REDIRECTS = 5;
 
 // Performance limits
 const MAX_CONCURRENT = 200;
@@ -28,12 +35,36 @@ const httpsAgent = new https.Agent({
 
 let activeRequests = 0;
 
+// ================= UTILITIES =================
+
+function hmacSHA256(message, secret) {
+    return crypto
+        .createHmac('sha256', secret)
+        .update(message)
+        .digest('base64');
+}
+
+function isValidHttpUrl(value) {
+    try {
+        const u = new URL(value);
+        return u.protocol === 'http:' || u.protocol === 'https:';
+    } catch {
+        return false;
+    }
+}
+
+function generateNonce() {
+    return crypto.randomBytes(16).toString('hex');
+}
+
+// ================= SERVER =================
+
 const server = http.createServer((req, res) => {
     req.socket.setNoDelay(true);
 
     // CORS + streaming headers
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type');
     res.setHeader(
         'Access-Control-Expose-Headers',
@@ -49,20 +80,88 @@ const server = http.createServer((req, res) => {
 
     const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
 
+    // ================= GENERATE SIGNED URL ENDPOINT =================
+    if (parsedUrl.pathname === '/generate-signed-url' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', () => {
+            try {
+                const { url } = JSON.parse(body);
+                
+                if (!url || !isValidHttpUrl(url)) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: 'Invalid URL' }));
+                }
+
+                const timestamp = Math.floor(Date.now() / 1000);
+                const nonce = generateNonce();
+                const signature = hmacSHA256(`${url}|${timestamp}|${nonce}`, STREAM_SECRET);
+
+                const signedUrl = `/proxy?url=${encodeURIComponent(url)}&t=${timestamp}&nonce=${nonce}&sig=${encodeURIComponent(signature)}`;
+
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ signedUrl }));
+            } catch (err) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Invalid request' }));
+            }
+        });
+        return;
+    }
+
+    // ================= PROXY ENDPOINT =================
     if (parsedUrl.pathname === '/proxy') {
-        const target = parsedUrl.searchParams.get('url');
-        if (!target) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({ error: 'Missing url parameter' }));
+        const targetUrl = parsedUrl.searchParams.get('url');
+        const t = parsedUrl.searchParams.get('t');
+        const nonce = parsedUrl.searchParams.get('nonce');
+        const sig = parsedUrl.searchParams.get('sig');
+
+        // Health check
+        if (!targetUrl) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                status: 'healthy',
+                activeRequests,
+                maxConcurrent: MAX_CONCURRENT
+            }));
         }
 
+        // Security validation
+        if (!t || !nonce || !sig) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: 'Unauthorized' }));
+        }
+
+        if (!isValidHttpUrl(targetUrl)) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: 'Invalid URL' }));
+        }
+
+        // Timestamp validation
+        const now = Math.floor(Date.now() / 1000);
+        const timestamp = parseInt(t, 10);
+
+        if (Math.abs(now - timestamp) > MAX_SKEW_SECONDS) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: 'Link expired' }));
+        }
+
+        // Signature validation
+        const expectedSig = hmacSHA256(`${targetUrl}|${t}|${nonce}`, STREAM_SECRET);
+
+        if (sig !== expectedSig) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: 'Invalid signature' }));
+        }
+
+        // Overload protection
         if (activeRequests >= MAX_CONCURRENT) {
             res.writeHead(503, { 'Retry-After': '5' });
             return res.end('Server busy');
         }
 
         activeRequests++;
-        proxyVideo(target, req, res)
+        proxyVideo(targetUrl, req, res)
             .catch(err => {
                 if (!res.headersSent) res.writeHead(500);
                 res.end();
@@ -72,7 +171,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // Static file serving
+    // ================= STATIC FILE SERVING =================
     let filePath = parsedUrl.pathname === '/' ? '/index.html' : parsedUrl.pathname;
     filePath = path.join(__dirname, filePath);
 
@@ -90,6 +189,8 @@ const server = http.createServer((req, res) => {
         res.end(data);
     });
 });
+
+// ================= PROXY FUNCTION =================
 
 function proxyVideo(videoUrl, clientReq, clientRes) {
     return new Promise((resolve, reject) => {
@@ -207,4 +308,5 @@ process.on('uncaughtException', err => {
 
 server.listen(PORT, () => {
     console.log(`StreamFlow Proxy running at http://localhost:${PORT}`);
+    console.log(`Using STREAM_SECRET: ${STREAM_SECRET === 'dev-secret-key-change-in-production' ? '⚠️  DEFAULT (change in production!)' : '✓ Custom'}`);
 });

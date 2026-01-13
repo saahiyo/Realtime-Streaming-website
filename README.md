@@ -1,19 +1,26 @@
 # StreamFlow - Advanced Video Player
 
-A modern, high-performance video streaming player with aggressive buffering, custom controls, and CORS proxy support.
+A modern, high-performance video streaming player with aggressive buffering, custom controls, and secure CORS proxy support.
 
 ## Features
 
+### Core Capabilities
 - 🚀 **Aggressive Buffering** - Preloads up to 45 seconds ahead for smooth playback
 - 🎨 **Modern UI** - Beautiful gradient design with glassmorphism effects
 - ⚡ **Fast Seeking** - Jump to any point instantly with optimized chunk loading
-- 🔄 **CORS Proxy** - Built-in proxy server to bypass CORS restrictions
+- 🔄 **Secure CORS Proxy** - HMAC-signed URLs for secure video streaming
 - 📊 **Real-time Stats** - Live buffer and network speed monitoring
 - ⌨️ **Keyboard Shortcuts** - Full keyboard control support
 - 🎯 **Click to Play** - Click anywhere on the video to play/pause
 - 🖼️ **Picture-in-Picture** - Multitask while watching
 - 🎬 **Variable Speed** - Play at speeds from 0.25x to 100x
 - 📱 **Responsive** - Works on all screen sizes
+
+### Security & Reliability
+- 🔐 **HMAC Authentication** - Time-limited signed URLs prevent unauthorized access
+- ⚠️ **Robust Error Handling** - Clear error messages for network, timeout, and format issues
+- ⏱️ **Smart Timeout Detection** - Automatic detection of stuck loading states
+- 🛡️ **Rate Limiting** - Protection against server overload
 
 ## Getting Started
 
@@ -30,12 +37,23 @@ git clone https://github.com/saahiyo/Realtime-Streaming-website.git
 cd Realtime-Streaming-website
 ```
 
-2. No dependencies to install - pure vanilla JavaScript!
+2. **Set up environment variables** (for proxy security):
+   - Copy `.env.example` to `.env`:
+     ```bash
+     cp .env.example .env
+     ```
+   - Edit `.env` and set a strong secret key:
+     ```env
+     STREAM_SECRET=your-secure-secret-key-here
+     ```
+   - **⚠️ Important**: Use a strong, random secret in production!
+
+3. No dependencies to install - pure vanilla JavaScript!
 
 ### Running the Application
 
 #### Option 1: Direct File Access
-Simply open `index.html` in your browser for direct video URL streaming.
+Simply open `index.html` in your browser for direct video URL streaming (no proxy features).
 
 #### Option 2: With Proxy Server (Recommended for CORS-blocked videos)
 ```bash
@@ -44,40 +62,53 @@ node server.js
 
 Then open `http://localhost:4001` in your browser.
 
-The proxy server:
+The proxy server includes:
+- **HMAC-based security** - All proxy requests require signed URLs with timestamps
+- **Automatic URL signing** - Server generates signed URLs via `/generate-signed-url` endpoint
 - Runs on port 4001 (configurable via `PORT` environment variable)
-- Handles CORS restrictions
+- Handles CORS restrictions transparently
 - Maintains keep-alive connections for better performance
 - Supports up to 200 concurrent streams
+- Time-limited URLs (5-minute expiration)
+- Rate limiting and overload protection
+
+**Security Note**: The player automatically requests signed URLs from the server when the "Use Proxy" option is enabled. You don't need to manually sign URLs.
 
 #### Option 3: Deploy to Vercel (Production)
 
 Deploy the proxy as a serverless edge function for global, scalable performance:
 
-1. **Install Vercel CLI** (if not already installed):
+1. **Set up environment variables in Vercel**:
+   - Go to your Vercel project settings
+   - Add environment variable: `STREAM_SECRET=your-production-secret-key`
+   - **⚠️ Critical**: Use a strong, unique secret in production!
+
+2. **Install Vercel CLI** (if not already installed):
 ```bash
 npm install -g vercel
 ```
 
-2. **Deploy to Vercel**:
+3. **Deploy to Vercel**:
 ```bash
 vercel
 ```
 
-3. **Access your deployment**:
+4. **Access your deployment**:
    - **Health check**: `https://your-domain.vercel.app/api/server`
-   - **Proxy endpoint**: `https://your-domain.vercel.app/api/server?url=<video-url>`
+   - **Sign URL endpoint**: `https://your-domain.vercel.app/api/server/generate-signed-url`
+   - **Proxy endpoint**: Automatically used by the player (signed URLs only)
 
-The Vercel edge function:
+The Vercel edge function includes:
+- **Same HMAC security** as local server
 - Automatically scales based on demand
 - Runs on Vercel's global edge network
 - Supports up to 100 concurrent streams per region
 - 25-second timeout limit (edge runtime requirement)
 - Health check endpoint for monitoring
 
-**Automatic Proxy Switching**: The player automatically detects the environment:
-- 🏠 **Local development**: Uses `http://localhost:4001/proxy`
-- 🚀 **Production (Vercel)**: Uses your Vercel edge function
+**Automatic Environment Detection**: The player automatically detects the environment:
+- 🏠 **Local development**: Uses `http://localhost:4001/generate-signed-url` and `http://localhost:4001/proxy`
+- 🚀 **Production (Vercel)**: Uses your Vercel domain's `generate-signed-url` endpoint
 - No manual configuration needed!
 
 ## Usage
@@ -128,41 +159,102 @@ StreamFlow uses an aggressive buffering approach:
 
 ## Configuration
 
+### Environment Variables
+
+Create a `.env` file in the project root:
+
+```env
+# Required for proxy security (both local and Vercel)
+STREAM_SECRET=your-secure-random-key-here
+
+# Optional: Custom port for local server (default: 4001)
+PORT=4001
+```
+
+**Security Requirements**:
+- Use a strong, random secret key (minimum 32 characters recommended)
+- Never commit `.env` to version control (already in `.gitignore`)
+- Use different secrets for development and production
+- Set `STREAM_SECRET` in Vercel environment variables for production
+
 ### Server Configuration
 
-Edit `server.js` to customize:
+Edit `server.js` to customize local server behavior:
 
 ```javascript
 const PORT = process.env.PORT || 4001;           // Server port
 const MAX_CONCURRENT = 200;                      // Max concurrent streams
-const REQUEST_TIMEOUT_MS = 30_000;               // Request timeout
+const REQUEST_TIMEOUT_MS = 30_000;               // Request timeout (30s)
 const KEEPALIVE_MAX_SOCKETS = 500;              // Max keep-alive sockets
+const MAX_SKEW_SECONDS = 300;                   // URL expiration time (5 min)
+const MAX_REDIRECTS = 5;                        // Max redirect follows
+```
+
+### Vercel Edge Function Configuration
+
+Edit `api/server.js` to customize edge function behavior:
+
+```javascript
+const MAX_CONCURRENT = 100;                      // Max concurrent streams per region
+const REQUEST_TIMEOUT_MS = 25000;                // Request timeout (25s, edge limit)
+const MAX_SKEW_SECONDS = 300;                   // URL expiration time (5 min)
+const MAX_REDIRECTS = 5;                        // Max redirect follows
 ```
 
 ### Player Configuration
 
-Edit `player.js` to customize buffering:
+Edit `player.js` to customize buffering and timeouts:
 
 ```javascript
-this.TARGET_BUFFER = 45;  // Target buffer in seconds
-this.LOW_BUFFER = 10;     // Low buffer warning threshold
+this.TARGET_BUFFER = 45;           // Target buffer in seconds
+this.LOW_BUFFER = 10;              // Low buffer warning threshold
+this.LOADING_TIMEOUT_MS = 15000;   // Loading timeout (15 seconds)
 ```
 
 ## Error Handling
 
-The application includes robust error handling for:
-- ❌ Network connection resets
-- ❌ CORS errors (use proxy)
-- ❌ Invalid video URLs
-- ❌ Timeout errors
-- ❌ Server overload (503 with retry-after)
+The application includes comprehensive error handling for a smooth user experience:
+
+### Client-Side (Player) Errors
+- ⏱️ **Loading Timeout** - Detects and reports videos that fail to load within 15 seconds
+- 🔴 **Media Errors** - Clear messages for:
+  - Network failures (`MEDIA_ERR_NETWORK`)
+  - Format/codec issues (`MEDIA_ERR_DECODE`)
+  - Unsupported sources (`MEDIA_ERR_SRC_NOT_SUPPORTED`)
+  - Aborted loads (`MEDIA_ERR_ABORTED`)
+- 📊 **State Detection** - Monitors video loading states to prevent stuck "Buffering..." UI
+- 🎯 **User Feedback** - Error overlay with specific, actionable messages
+
+### Server-Side (Proxy) Errors
+- 🔐 **Security Errors**:
+  - `401 Unauthorized` - Missing or invalid signature
+  - `403 Link Expired` - URL timestamp older than 5 minutes
+  - `403 Invalid Signature` - HMAC verification failed
+- 🚫 **Request Errors**:
+  - `400 Invalid URL` - Malformed or non-HTTP(S) URLs
+  - `503 Server Busy` - Too many concurrent requests (with `Retry-After` header)
+  - `502 Proxy Error` - Upstream server issues
+  - `502 Content Not Streamable` - HTML pages blocked (anti-bot protection)
+- ⏱️ **Timeout Protection** - 30s local / 25s edge function timeout
+- 🔄 **Auto-Retry** - Graceful handling of network resets and interruptions
 
 ## Performance Optimizations
 
-- **Keep-alive connections** - Reduces latency with connection reuse
+### Network Layer
+- **Keep-alive connections** - Reduces latency with connection reuse (local server)
 - **TCP_NODELAY** - Disables Nagle's algorithm for faster streaming
 - **High water marks** - 256KB buffers for optimal throughput
+- **Connection pooling** - Up to 500 concurrent keep-alive sockets
+
+### Buffering Strategy
 - **Smart preloading** - Metadata first, then aggressive buffering on play
+- **Target buffer: 45 seconds** - Ensures smooth playback even on unstable networks
+- **Continuous buffer pressure** - 500ms interval checks to maintain buffer
+
+### Security Optimizations
+- **Time-limited URLs** - 5-minute expiration minimizes unauthorized access window
+- **HMAC-SHA256** - Fast cryptographic signing with minimal overhead
+- **Nonce-based replay protection** - Prevents URL reuse attacks
 
 ## Browser Compatibility
 

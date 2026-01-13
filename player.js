@@ -62,6 +62,10 @@ class StreamFlowPlayer {
         // OSD timeout
         this.osdTimeout = null;
 
+        // Loading timeout
+        this.loadingTimeout = null;
+        this.LOADING_TIMEOUT_MS = 15000; // 15 seconds
+
         this.init();
     }
 
@@ -75,32 +79,77 @@ class StreamFlowPlayer {
        Load Video
        ======================= */
 
-    loadVideo() {
+    async loadVideo() {
         let url = this.urlInput.value.trim();
         if (!url) return;
 
-        if (this.useProxyCheckbox?.checked) {
-            // Automatically use Vercel edge function in production, localhost in dev
-            const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-            const proxyBase = isLocalhost 
-                ? 'http://localhost:4001/proxy' 
-                : 'https://streamflow-rho.vercel.app/api/server';
-            url = `${proxyBase}?url=${encodeURIComponent(url)}`;
-        }
-
-        this.currentUrl = url;
+        // Show loading immediately
         this.showPlayerSection();
         this.resetUI();
 
-        this.lastBufferedEnd = 0;
-        this.lastCheck = performance.now();
-        this._nudged = false;
+        // Clear any existing timeout
+        if (this.loadingTimeout) {
+            clearTimeout(this.loadingTimeout);
+            this.loadingTimeout = null;
+        }
 
-        this.video.pause();
-        this.video.removeAttribute('src');
-        this.video.preload = 'metadata';
-        this.video.src = url;
-        this.video.load();
+        try {
+            if (this.useProxyCheckbox?.checked) {
+                // Get signed URL from server
+                const signedUrl = await this.getSignedUrl(url);
+                url = signedUrl;
+            }
+
+            this.currentUrl = url;
+            this.lastBufferedEnd = 0;
+            this.lastCheck = performance.now();
+            this._nudged = false;
+
+            this.video.pause();
+            this.video.removeAttribute('src');
+            this.video.preload = 'metadata';
+            this.video.src = url;
+            this.video.load();
+
+            // Set timeout to detect stuck loading
+            this.loadingTimeout = setTimeout(() => {
+                if (this.video.readyState === 0 || (this.video.networkState === 2 && this.video.readyState < 2)) {
+                    this.showError('Loading timeout - video failed to load');
+                }
+            }, this.LOADING_TIMEOUT_MS);
+        } catch (err) {
+            this.showError(`Failed to load video: ${err.message}`);
+        }
+    }
+
+    async getSignedUrl(videoUrl) {
+        // Determine the signing endpoint based on environment
+        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const signingEndpoint = isLocalhost 
+            ? 'http://localhost:4001/generate-signed-url'
+            : '/generate-signed-url';
+
+        const response = await fetch(signingEndpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ url: videoUrl })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+            throw new Error(errorData.error || 'Failed to generate signed URL');
+        }
+
+        const data = await response.json();
+        
+        // Construct full URL
+        const baseUrl = isLocalhost 
+            ? 'http://localhost:4001'
+            : window.location.origin;
+        
+        return `${baseUrl}${data.signedUrl}`;
     }
 
     /* =======================
@@ -218,11 +267,37 @@ class StreamFlowPlayer {
     }
 
     setupVideoEvents() {
+        this.video.addEventListener('loadstart', () => {
+            // Clear timeout when loading starts
+            if (this.loadingTimeout) {
+                clearTimeout(this.loadingTimeout);
+            }
+            this.showLoading();
+        });
+
         this.video.addEventListener('loadedmetadata', () => {
+            if (this.loadingTimeout) {
+                clearTimeout(this.loadingTimeout);
+                this.loadingTimeout = null;
+            }
             this.durationEl.textContent = this.formatTime(this.video.duration);
             this.hideLoading();
             this.playOverlay.classList.remove('hidden');
             this.updatePlayPauseIcon();
+        });
+
+        this.video.addEventListener('loadeddata', () => {
+            if (this.loadingTimeout) {
+                clearTimeout(this.loadingTimeout);
+                this.loadingTimeout = null;
+            }
+        });
+
+        this.video.addEventListener('canplay', () => {
+            if (this.loadingTimeout) {
+                clearTimeout(this.loadingTimeout);
+                this.loadingTimeout = null;
+            }
         });
 
         this.video.addEventListener('play', () => {
@@ -263,8 +338,56 @@ class StreamFlowPlayer {
             this.hideLoading();
         });
 
+        this.video.addEventListener('stalled', () => {
+            console.warn('Video stalled');
+            // Don't show error immediately, waiting event will show loading
+        });
+
+        this.video.addEventListener('suspend', () => {
+            console.warn('Video suspended');
+            // Browser suspended loading, but might resume
+        });
+
+        this.video.addEventListener('abort', () => {
+            console.warn('Video abort');
+            if (this.loadingTimeout) {
+                clearTimeout(this.loadingTimeout);
+                this.loadingTimeout = null;
+            }
+        });
+
         this.video.addEventListener('error', () => {
-            this.showError('Unable to load video');
+            if (this.loadingTimeout) {
+                clearTimeout(this.loadingTimeout);
+                this.loadingTimeout = null;
+            }
+
+            let errorMessage = 'Unable to load video';
+            
+            if (this.video.error) {
+                switch (this.video.error.code) {
+                    case 1: // MEDIA_ERR_ABORTED
+                        errorMessage = 'Video loading aborted';
+                        break;
+                    case 2: // MEDIA_ERR_NETWORK
+                        errorMessage = 'Network error - failed to load video';
+                        break;
+                    case 3: // MEDIA_ERR_DECODE
+                        errorMessage = 'Video decoding error';
+                        break;
+                    case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
+                        errorMessage = 'Video format not supported or source unavailable';
+                        break;
+                    default:
+                        errorMessage = `Video error (code ${this.video.error.code})`;
+                }
+                
+                if (this.video.error.message) {
+                    console.error('Video error details:', this.video.error.message);
+                }
+            }
+            
+            this.showError(errorMessage);
         });
 
         // Continuous buffer pressure (CRITICAL)
