@@ -1,0 +1,25 @@
+{
+  "name": "realtime-streaming-website",
+  "version": "1.0.0",
+  "description": "A modern, high-performance video streaming player with aggressive buffering, custom controls, and secure CORS proxy support.",
+  "main": "player.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/saahiyo/Realtime-Streaming-website.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/saahiyo/Realtime-Streaming-website/issues"
+  },
+  "homepage": "https://github.com/saahiyo/Realtime-Streaming-website#readme",
+  "dependencies": {
+    "dotenv": "^17.2.3"
+  }
+}

@@ -3,6 +3,9 @@
  * Now with HMAC-based security for signed URLs
  */
 
+// Load environment variables from .env file
+require('dotenv').config();
+
 const http = require('http');
 const https = require('https');
 const { URL } = require('url');

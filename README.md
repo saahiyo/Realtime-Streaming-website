@@ -37,7 +37,13 @@ git clone https://github.com/saahiyo/Realtime-Streaming-website.git
 cd Realtime-Streaming-website
 ```
 
-2. **Set up environment variables** (for proxy security):
+2. **Install dependencies** (required for local proxy server):
+   ```bash
+   npm install
+   ```
+   This installs the `dotenv` package needed to load environment variables.
+
+3. **Set up environment variables** (for proxy security):
    - Copy `.env.example` to `.env`:
      ```bash
      cp .env.example .env
@@ -48,7 +54,7 @@ cd Realtime-Streaming-website
      ```
    - **⚠️ Important**: Use a strong, random secret in production!
 
-3. No dependencies to install - pure vanilla JavaScript!
+4. **No other dependencies** - Frontend is pure vanilla JavaScript!
 
 ### Running the Application
 
@@ -141,6 +147,9 @@ The Vercel edge function includes:
 - **`styles.css`** - Styling and animations
 - **`server.js`** - Node.js CORS proxy server (local development)
 - **`api/server.js`** - Vercel edge function (production deployment)
+- **`package.json`** - Node.js dependencies (dotenv)
+- **`.env.example`** - Environment variable template
+- **`.gitignore`** - Git ignore rules
 
 ### Key Technologies
 
