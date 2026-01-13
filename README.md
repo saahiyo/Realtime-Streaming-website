@@ -100,9 +100,9 @@ vercel
 ```
 
 4. **Access your deployment**:
-   - **Health check**: `https://your-domain.vercel.app/api/server`
-   - **Sign URL endpoint**: `https://your-domain.vercel.app/api/server/generate-signed-url`
-   - **Proxy endpoint**: Automatically used by the player (signed URLs only)
+   - **Health check**: `https://your-domain.vercel.app/api/server` (returns status JSON)
+   - **Sign URL endpoint**: `https://your-domain.vercel.app/api/server/generate-signed-url` (POST)
+   - **Proxy endpoint**: `https://your-domain.vercel.app/api/server?url=...` (automatically used by player)
 
 The Vercel edge function includes:
 - **Same HMAC security** as local server

@@ -127,7 +127,7 @@ class StreamFlowPlayer {
         const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
         const signingEndpoint = isLocalhost 
             ? 'http://localhost:4001/generate-signed-url'
-            : '/generate-signed-url';
+            : '/api/server/generate-signed-url';
 
         const response = await fetch(signingEndpoint, {
             method: 'POST',
