@@ -22,6 +22,7 @@ class StreamFlowPlayer {
         this.playOverlay = document.getElementById('playOverlay');
         this.errorOverlay = document.getElementById('errorOverlay');
         this.errorText = document.getElementById('errorText');
+        this.retryBtn = document.getElementById('retryBtn');
         this.bufferIndicator = document.getElementById('bufferIndicator');
         this.osd = document.getElementById('osd');
 
@@ -122,6 +123,12 @@ class StreamFlowPlayer {
         }
     }
 
+    retryLoad() {
+        // Hide error overlay and retry loading
+        this.errorOverlay.classList.remove('active');
+        this.loadVideo();
+    }
+
     async getSignedUrl(videoUrl) {
         // Determine the signing endpoint based on environment
         const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
@@ -159,6 +166,7 @@ class StreamFlowPlayer {
     bindEvents() {
         this.loadBtn.addEventListener('click', () => this.loadVideo());
         this.backBtn.addEventListener('click', () => this.showUrlSection());
+        this.retryBtn.addEventListener('click', () => this.retryLoad());
 
         this.playPauseBtn.addEventListener('click', () => this.togglePlay());
         this.bigPlayBtn.addEventListener('click', () => this.togglePlay());
