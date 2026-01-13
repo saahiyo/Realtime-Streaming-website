@@ -82,6 +82,39 @@ class StreamFlowPlayer {
     }
 
     /* =======================
+       Terabox Handler
+       ======================= */
+
+    isTeraboxUrl(url) {
+        // Check if the URL is a Terabox share link
+        return url.includes('teraboxshare.com/s/') || url.includes('1024terabox.com/s/');
+    }
+
+    async getTeraboxDownloadLink(teraboxUrl) {
+        try {
+            // Call tera-core API to get the download link
+            const apiUrl = `https://tera-core.vercel.app/api?url=${encodeURIComponent(teraboxUrl)}`;
+            
+            const response = await fetch(apiUrl);
+            
+            if (!response.ok) {
+                throw new Error(`Tera-core API error: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            // Extract the download_link from the first file in the files array
+            if (data.files && data.files.length > 0 && data.files[0].download_link) {
+                return data.files[0].download_link;
+            } else {
+                throw new Error('No download link found in Terabox response');
+            }
+        } catch (err) {
+            throw new Error(`Failed to get Terabox download link: ${err.message}`);
+        }
+    }
+
+    /* =======================
        Load Video
        ======================= */
 
@@ -100,6 +133,12 @@ class StreamFlowPlayer {
         }
 
         try {
+            // Check if this is a Terabox link
+            if (this.isTeraboxUrl(url)) {
+                // Get the actual download link from tera-core API
+                url = await this.getTeraboxDownloadLink(url);
+            }
+
             if (this.useProxyCheckbox?.checked) {
                 // Get signed URL from server
                 const signedUrl = await this.getSignedUrl(url);
