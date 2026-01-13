@@ -8,6 +8,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 </head>
 <body>
     <div class="app-container">
@@ -19,15 +21,7 @@
         <!-- Header -->
         <header class="header">
             <div class="logo">
-                <svg class="logo-icon" viewBox="0 0 32 32" fill="none">
-                    <path d="M8 6L26 16L8 26V6Z" fill="url(#logoGrad)" stroke="currentColor" stroke-width="1.5"/>
-                    <defs>
-                        <linearGradient id="logoGrad" x1="8" y1="6" x2="26" y2="26">
-                            <stop stop-color="#00F5D4"/>
-                            <stop offset="1" stop-color="#7B2CBF"/>
-                        </linearGradient>
-                    </defs>
-                </svg>
+                <i data-lucide="play" class="logo-icon"></i>
                 <span class="logo-text">StreamFlow</span>
             </div>
             <div class="header-stats">
@@ -61,9 +55,7 @@
                             spellcheck="false"
                         >
                         <button class="play-btn" id="loadBtn">
-                            <svg viewBox="0 0 24 24" fill="none">
-                                <path d="M8 5.14v13.72a1 1 0 001.5.86l11-6.86a1 1 0 000-1.72l-11-6.86a1 1 0 00-1.5.86z" fill="currentColor"/>
-                            </svg>
+                            <i data-lucide="play"></i>
                             <span>Stream</span>
                         </button>
                     </div>
@@ -108,20 +100,18 @@
                     <!-- Loading Overlay -->
                     <div class="loading-overlay" id="loadingOverlay">
                         <div class="loader">
-                            <div class="loader-ring"></div>
-                            <div class="loader-ring"></div>
-                            <div class="loader-ring"></div>
+                            <div class="loader-dot"></div>
+                            <div class="loader-dot"></div>
+                            <div class="loader-dot"></div>
                         </div>
                         <span class="loading-text">Buffering...</span>
                     </div>
 
+
                     <!-- Play Overlay -->
                     <div class="play-overlay" id="playOverlay">
                         <button class="big-play-btn" id="bigPlayBtn">
-                            <svg viewBox="0 0 64 64" fill="none">
-                                <circle cx="32" cy="32" r="30" stroke="currentColor" stroke-width="2" opacity="0.3"/>
-                                <path d="M26 20v24l20-12-20-12z" fill="currentColor"/>
-                            </svg>
+                            <i data-lucide="play"></i>
                         </button>
                     </div>
 
@@ -140,46 +130,26 @@
                             <div class="controls-left">
                                 <!-- Play/Pause -->
                                 <button class="ctrl-btn" id="playPauseBtn" title="Play/Pause (Space)">
-                                    <svg class="icon-play" viewBox="0 0 24 24" fill="none">
-                                        <path d="M8 5.14v13.72a1 1 0 001.5.86l11-6.86a1 1 0 000-1.72l-11-6.86a1 1 0 00-1.5.86z" fill="currentColor"/>
-                                    </svg>
-                                    <svg class="icon-pause" viewBox="0 0 24 24" fill="none">
-                                        <rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor"/>
-                                        <rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor"/>
-                                    </svg>
+                                    <i data-lucide="play" class="icon-play"></i>
+                                    <i data-lucide="pause" class="icon-pause"></i>
                                 </button>
 
                                 <!-- Skip Backward -->
                                 <button class="ctrl-btn" id="skipBackBtn" title="Back 10s (←)">
-                                    <svg viewBox="0 0 24 24" fill="none">
-                                        <path d="M12.5 8V4L6 9l6.5 5v-4c3.5 0 6.5 2.9 6.5 6.5S16 23 12.5 23 6 20.1 6 16.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                        <text x="10" y="16" font-size="6" fill="currentColor" font-family="sans-serif">10</text>
-                                    </svg>
+                                    <i data-lucide="rewind"></i>
                                 </button>
 
                                 <!-- Skip Forward -->
                                 <button class="ctrl-btn" id="skipForwardBtn" title="Forward 10s (→)">
-                                    <svg viewBox="0 0 24 24" fill="none">
-                                        <path d="M11.5 8V4L18 9l-6.5 5v-4C8 10 5 12.9 5 16.5S8 23 11.5 23 18 20.1 18 16.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                        <text x="9" y="16" font-size="6" fill="currentColor" font-family="sans-serif">10</text>
-                                    </svg>
+                                    <i data-lucide="fast-forward"></i>
                                 </button>
 
                                 <!-- Volume -->
                                 <div class="volume-container">
                                     <button class="ctrl-btn" id="muteBtn" title="Mute (M)">
-                                        <svg class="icon-volume-high" viewBox="0 0 24 24" fill="none">
-                                            <path d="M11 5L6 9H2v6h4l5 4V5z" fill="currentColor"/>
-                                            <path d="M15.54 8.46a5 5 0 010 7.07M19.07 4.93a10 10 0 010 14.14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                        </svg>
-                                        <svg class="icon-volume-low" viewBox="0 0 24 24" fill="none">
-                                            <path d="M11 5L6 9H2v6h4l5 4V5z" fill="currentColor"/>
-                                            <path d="M15.54 8.46a5 5 0 010 7.07" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                        </svg>
-                                        <svg class="icon-volume-mute" viewBox="0 0 24 24" fill="none">
-                                            <path d="M11 5L6 9H2v6h4l5 4V5z" fill="currentColor"/>
-                                            <path d="M23 9l-6 6M17 9l6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                        </svg>
+                                        <i data-lucide="volume-2" class="icon-volume-high"></i>
+                                        <i data-lucide="volume-1" class="icon-volume-low"></i>
+                                        <i data-lucide="volume-x" class="icon-volume-mute"></i>
                                     </button>
                                     <div class="volume-slider-wrapper">
                                         <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.01" value="1">
@@ -240,20 +210,13 @@
 
                                 <!-- Picture in Picture -->
                                 <button class="ctrl-btn" id="pipBtn" title="Picture in Picture (P)">
-                                    <svg viewBox="0 0 24 24" fill="none">
-                                        <rect x="2" y="4" width="20" height="14" rx="2" stroke="currentColor" stroke-width="2"/>
-                                        <rect x="11" y="10" width="9" height="6" rx="1" fill="currentColor"/>
-                                    </svg>
+                                    <i data-lucide="picture-in-picture-2"></i>
                                 </button>
 
                                 <!-- Fullscreen -->
                                 <button class="ctrl-btn" id="fullscreenBtn" title="Fullscreen (F)">
-                                    <svg class="icon-expand" viewBox="0 0 24 24" fill="none">
-                                        <path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                    </svg>
-                                    <svg class="icon-compress" viewBox="0 0 24 24" fill="none">
-                                        <path d="M8 3v3a2 2 0 01-2 2H3m18 0h-3a2 2 0 01-2-2V3m0 18v-3a2 2 0 012-2h3M3 16h3a2 2 0 012 2v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                    </svg>
+                                    <i data-lucide="maximize" class="icon-expand"></i>
+                                    <i data-lucide="minimize" class="icon-compress"></i>
                                 </button>
                             </div>
                         </div>
@@ -264,10 +227,7 @@
 
                     <!-- Error Overlay -->
                     <div class="error-overlay" id="errorOverlay">
-                        <svg viewBox="0 0 64 64" fill="none">
-                            <circle cx="32" cy="32" r="28" stroke="currentColor" stroke-width="2"/>
-                            <path d="M32 20v16M32 42v2" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
-                        </svg>
+                        <i data-lucide="alert-circle" style="width: 64px; height: 64px;"></i>
                         <span class="error-text" id="errorText">Unable to load video</span>
                         <button class="retry-btn" id="retryBtn">Try Again</button>
                     </div>
@@ -308,6 +268,10 @@
     </div>
 
     <script src="player.js"></script>
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+    </script>
 </body>
 </html>
 

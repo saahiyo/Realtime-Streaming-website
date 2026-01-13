@@ -67,6 +67,11 @@ class StreamFlowPlayer {
         this.loadingTimeout = null;
         this.LOADING_TIMEOUT_MS = 15000; // 15 seconds
 
+        // Double-tap detection
+        this.lastTapTime = 0;
+        this.tapTimeout = null;
+        this.DOUBLE_TAP_DELAY = 300; // ms
+
         this.init();
     }
 
@@ -170,7 +175,16 @@ class StreamFlowPlayer {
 
         this.playPauseBtn.addEventListener('click', () => this.togglePlay());
         this.bigPlayBtn.addEventListener('click', () => this.togglePlay());
-        this.video.addEventListener('click', () => this.togglePlay());
+        
+        // Double-tap/click for play/pause on video and overlays
+        this.video.addEventListener('click', (e) => this.handleVideoTap(e));
+        this.playOverlay.addEventListener('click', (e) => this.handleVideoTap(e));
+        this.playerContainer.addEventListener('click', (e) => {
+            // Only handle clicks on the container itself, not on controls or other children
+            if (e.target === this.playerContainer) {
+                this.handleVideoTap(e);
+            }
+        });
 
         this.skipBackBtn.addEventListener('click', () => this.seekBy(-10));
         this.skipForwardBtn.addEventListener('click', () => this.seekBy(10));
@@ -208,51 +222,52 @@ class StreamFlowPlayer {
             case 'k':
                 e.preventDefault();
                 this.togglePlay();
-                this.showOSD(this.video.paused ? '▶️ Play' : '⏸️ Pause');
+                // No OSD for play/pause - visual feedback from playOverlay is enough
                 break;
             
             case 'f':
                 e.preventDefault();
                 this.toggleFullscreen();
-                this.showOSD(document.fullscreenElement ? '🔲 Fullscreen' : '⬜ Exit Fullscreen');
+                // No OSD - fullscreen change is immediately obvious
                 break;
             
             case 'm':
                 e.preventDefault();
                 this.video.muted = !this.video.muted;
-                this.showOSD(this.video.muted ? '🔇 Muted' : '🔊 Unmuted');
+                this.showOSD(this.video.muted ? 'volume-x' : 'volume-2', this.video.muted ? 'Muted' : 'Unmuted');
                 break;
             
             case 'p':
                 e.preventDefault();
                 this.togglePiP();
-                this.showOSD('📺 Picture-in-Picture');
+                // No OSD - PiP mode is immediately visible
+
                 break;
             
             case 'arrowleft':
                 e.preventDefault();
                 this.seekBy(-10);
-                this.showOSD('⏪ -10s');
+                this.showOSD('rewind', '-10s');
                 break;
             
             case 'arrowright':
                 e.preventDefault();
                 this.seekBy(10);
-                this.showOSD('⏩ +10s');
+                this.showOSD('fast-forward', '+10s');
                 break;
             
             case 'arrowup':
                 e.preventDefault();
                 this.video.volume = Math.min(1, this.video.volume + 0.1);
                 this.volumeSlider.value = this.video.volume;
-                this.showOSD(`🔊 Volume: ${Math.round(this.video.volume * 100)}%`);
+                this.showOSD('volume-2', `${Math.round(this.video.volume * 100)}%`);
                 break;
             
             case 'arrowdown':
                 e.preventDefault();
                 this.video.volume = Math.max(0, this.video.volume - 0.1);
                 this.volumeSlider.value = this.video.volume;
-                this.showOSD(`🔉 Volume: ${Math.round(this.video.volume * 100)}%`);
+                this.showOSD('volume-1', `${Math.round(this.video.volume * 100)}%`);
                 break;
             
             case '0':
@@ -269,7 +284,8 @@ class StreamFlowPlayer {
                 const percent = parseInt(e.key) / 10;
                 this.video.currentTime = this.video.duration * percent;
                 this.updateProgress(); // Immediate visual feedback
-                this.showOSD(`⏱️ Jump to ${percent * 100}%`);
+                // Show time instead of percentage for better context
+                this.showOSD('clock', this.formatTime(this.video.currentTime));
                 break;
         }
     }
@@ -447,6 +463,38 @@ class StreamFlowPlayer {
        Playback Helpers
        ======================= */
 
+    handleVideoTap(e) {
+        // Ignore clicks on buttons and control elements
+        if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
+            return;
+        }
+
+        const now = Date.now();
+        const timeSinceLastTap = now - this.lastTapTime;
+
+        // Clear any existing timeout
+        if (this.tapTimeout) {
+            clearTimeout(this.tapTimeout);
+            this.tapTimeout = null;
+        }
+
+        // Check if this is a double-tap (within DOUBLE_TAP_DELAY ms)
+        if (timeSinceLastTap < this.DOUBLE_TAP_DELAY && timeSinceLastTap > 0) {
+            // Double-tap detected - toggle play/pause
+            this.lastTapTime = 0; // Reset to prevent triple-tap
+            this.togglePlay();
+            // No OSD needed - play overlay provides visual feedback
+        } else {
+            // First tap - wait to see if there's a second one
+            this.lastTapTime = now;
+            this.tapTimeout = setTimeout(() => {
+                // No second tap detected within delay - treat as single tap
+                // For single tap, we'll just do nothing (rely on controls overlay)
+                this.tapTimeout = null;
+            }, this.DOUBLE_TAP_DELAY);
+        }
+    }
+
     togglePlay() {
         this.video.paused ? this.video.play() : this.video.pause();
     }
@@ -564,20 +612,30 @@ class StreamFlowPlayer {
         }
     }
 
-    showOSD(message) {
+    showOSD(iconOrMessage, message = null) {
         // Clear any existing timeout
         if (this.osdTimeout) {
             clearTimeout(this.osdTimeout);
         }
 
-        // Show the OSD with the message
-        this.osd.textContent = message;
+        // If message is provided, first param is icon name
+        if (message) {
+            this.osd.innerHTML = `<i data-lucide="${iconOrMessage}"></i><span>${message}</span>`;
+            // Reinitialize all Lucide icons
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+            }
+        } else {
+            // Just text, no icon
+            this.osd.innerHTML = `<span>${iconOrMessage}</span>`;
+        }
+        
         this.osd.classList.add('show');
 
-        // Hide after 1 second
+        // Hide after 800ms - shorter for premium feel
         this.osdTimeout = setTimeout(() => {
             this.osd.classList.remove('show');
-        }, 1000);
+        }, 800);
     }
 }
 
