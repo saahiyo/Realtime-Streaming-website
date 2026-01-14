@@ -38,6 +38,7 @@ class StreamFlowPlayer {
         this.muteBtn = document.getElementById('muteBtn');
         this.volumeSlider = document.getElementById('volumeSlider');
         this.pipBtn = document.getElementById('pipBtn');
+        this.downloadBtn = document.getElementById('downloadBtn');
 
         // Progress
         this.progressContainer = document.getElementById('progressContainer');
@@ -296,6 +297,7 @@ class StreamFlowPlayer {
 
         this.fullscreenBtn.addEventListener('click', () => this.toggleFullscreen());
         this.pipBtn.addEventListener('click', () => this.togglePiP());
+        this.downloadBtn.addEventListener('click', () => this.downloadVideo());
 
         this.progressContainer.addEventListener('click', e => this.seek(e));
         
@@ -338,6 +340,11 @@ class StreamFlowPlayer {
                 this.togglePiP();
                 // No OSD - PiP mode is immediately visible
 
+                break;
+            
+            case 'd':
+                e.preventDefault();
+                this.downloadVideo();
                 break;
             
             case 'arrowleft':
@@ -642,6 +649,34 @@ class StreamFlowPlayer {
                 ? await document.exitPictureInPicture()
                 : await this.video.requestPictureInPicture();
         } catch {}
+    }
+
+    downloadVideo() {
+        const videoUrl = this.video.src || this.currentUrl;
+        if (!videoUrl) {
+            this.showOSD('alert-circle', 'No video loaded');
+            return;
+        }
+
+        // Extract filename from URL or use default
+        const url = new URL(videoUrl);
+        let filename = url.pathname.split('/').pop() || 'video.mp4';
+        
+        // If no extension, add .mp4
+        if (!filename.includes('.')) {
+            filename += '.mp4';
+        }
+
+        // Create a temporary anchor element to trigger download
+        const a = document.createElement('a');
+        a.href = videoUrl;
+        a.download = filename;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        this.showOSD('download', 'Download started');
     }
 
     updateProgressTooltip(e) {
