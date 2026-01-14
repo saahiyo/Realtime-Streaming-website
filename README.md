@@ -2,6 +2,8 @@
 
 A modern, high-performance video streaming player with aggressive buffering, custom controls, and secure CORS proxy support.
 
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/d334d907-b717-40fa-ab4b-6a0a7c769a8d" />
+
 ## Features
 
 ### Core Capabilities
