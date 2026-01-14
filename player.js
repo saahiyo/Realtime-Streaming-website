@@ -59,6 +59,7 @@ class StreamFlowPlayer {
         this.lastBufferedEnd = 0;
         this.lastCheck = performance.now();
         this._nudged = false;
+        this.teraboxMetadata = null;
 
         // Buffer targets (IMPORTANT)
         this.TARGET_BUFFER = 45; // seconds
@@ -119,8 +120,13 @@ class StreamFlowPlayer {
             
             const data = await response.json();
             
-            // Extract the download_link from the first file in the files array
+            // Extract the download_link and metadata from the first file
             if (data.files && data.files.length > 0 && data.files[0].download_link) {
+                // Store metadata including filename
+                this.teraboxMetadata = {
+                    filename: data.files[0].filename || null,
+                    size: data.files[0].size || null
+                };
                 return data.files[0].download_link;
             } else {
                 throw new Error('No playable video found in Terabox link');
@@ -658,13 +664,16 @@ class StreamFlowPlayer {
             return;
         }
 
-        // Extract filename from URL or use default
-        const url = new URL(videoUrl);
-        let filename = url.pathname.split('/').pop() || 'video.mp4';
+        let filename;
         
-        // If no extension, add .mp4
-        if (!filename.includes('.')) {
-            filename += '.mp4';
+        // Check if we have Terabox metadata with filename
+        if (this.teraboxMetadata && this.teraboxMetadata.filename) {
+            filename = this.teraboxMetadata.filename;
+        } else {
+            // Generate random filename with timestamp
+            const timestamp = new Date().getTime();
+            const randomStr = Math.random().toString(36).substring(2, 8);
+            filename = `video_${timestamp}_${randomStr}.mp4`;
         }
 
         // Create a temporary anchor element to trigger download
