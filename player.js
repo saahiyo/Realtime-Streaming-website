@@ -25,6 +25,9 @@ class StreamFlowPlayer {
         this.retryBtn = document.getElementById('retryBtn');
         this.bufferIndicator = document.getElementById('bufferIndicator');
         this.osd = document.getElementById('osd');
+        
+        // Loading state tracking
+        this.currentLoadingState = 'idle'; // idle, terabox, proxy, metadata, buffering
 
         // Controls
         this.playPauseBtn = document.getElementById('playPauseBtn');
@@ -94,13 +97,23 @@ class StreamFlowPlayer {
 
     async getTeraboxDownloadLink(teraboxUrl) {
         try {
+            this.updateLoadingMessage('Processing Terabox link...');
+            
             // Call tera-core API to get the download link
             const apiUrl = `https://tera-core.vercel.app/api?url=${encodeURIComponent(teraboxUrl)}`;
             
             const response = await fetch(apiUrl);
             
             if (!response.ok) {
-                throw new Error(`Tera-core API error: ${response.status}`);
+                if (response.status === 404) {
+                    throw new Error('Terabox file not found or link expired');
+                } else if (response.status === 429) {
+                    throw new Error('Too many requests to Terabox API - please try again later');
+                } else if (response.status >= 500) {
+                    throw new Error('Terabox service temporarily unavailable');
+                } else {
+                    throw new Error(`Terabox API error (${response.status})`);
+                }
             }
             
             const data = await response.json();
@@ -109,10 +122,14 @@ class StreamFlowPlayer {
             if (data.files && data.files.length > 0 && data.files[0].download_link) {
                 return data.files[0].download_link;
             } else {
-                throw new Error('No download link found in Terabox response');
+                throw new Error('No playable video found in Terabox link');
             }
         } catch (err) {
-            throw new Error(`Failed to get Terabox download link: ${err.message}`);
+            // Rethrow with better context
+            if (err.message.includes('fetch')) {
+                throw new Error('Unable to connect to Terabox service - check your internet connection');
+            }
+            throw err;
         }
     }
 
@@ -127,6 +144,8 @@ class StreamFlowPlayer {
         // Show loading immediately
         this.showPlayerSection();
         this.resetUI();
+        this.currentLoadingState = 'idle';
+        this.updateLoadingMessage('Initializing...');
 
         // Clear any existing timeout
         if (this.loadingTimeout) {
@@ -137,11 +156,14 @@ class StreamFlowPlayer {
         try {
             // Check if this is a Terabox link
             if (this.isTeraboxUrl(url)) {
+                this.currentLoadingState = 'terabox';
                 // Get the actual download link from tera-core API
                 url = await this.getTeraboxDownloadLink(url);
             }
 
             if (this.useProxyCheckbox?.checked) {
+                this.currentLoadingState = 'proxy';
+                this.updateLoadingMessage('Connecting to streaming proxy...');
                 // Get signed URL from server
                 const signedUrl = await this.getSignedUrl(url);
                 url = signedUrl;
@@ -152,6 +174,9 @@ class StreamFlowPlayer {
             this.lastCheck = performance.now();
             this._nudged = false;
 
+            this.currentLoadingState = 'metadata';
+            this.updateLoadingMessage('Connecting to video source...');
+            
             this.video.pause();
             this.video.removeAttribute('src');
             this.video.preload = 'metadata';
@@ -161,11 +186,25 @@ class StreamFlowPlayer {
             // Set timeout to detect stuck loading
             this.loadingTimeout = setTimeout(() => {
                 if (this.video.readyState === 0 || (this.video.networkState === 2 && this.video.readyState < 2)) {
-                    this.showError('Loading timeout - video failed to load');
+                    this.showError(
+                        'Connection timeout - unable to load video.\n' +
+                        'This could be due to:\n' +
+                        '• Network connection issues\n' +
+                        '• Invalid or expired video link\n' +
+                        '• Video source is currently unavailable'
+                    );
                 }
             }, this.LOADING_TIMEOUT_MS);
         } catch (err) {
-            this.showError(`Failed to load video: ${err.message}`);
+            // Provide context-aware error messages
+            let errorMsg = err.message;
+            
+            // Don't add "Failed to load video" prefix if message is already descriptive
+            if (!errorMsg.includes('Terabox') && !errorMsg.includes('proxy') && !errorMsg.includes('Unable to connect')) {
+                errorMsg = `Failed to load video: ${errorMsg}`;
+            }
+            
+            this.showError(errorMsg);
         }
     }
 
@@ -176,33 +215,49 @@ class StreamFlowPlayer {
     }
 
     async getSignedUrl(videoUrl) {
-        // Determine the signing endpoint based on environment
-        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-        const signingEndpoint = isLocalhost 
-            ? 'http://localhost:4001/generate-signed-url'
-            : '/api/server?action=sign';
+        try {
+            // Determine the signing endpoint based on environment
+            const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const signingEndpoint = isLocalhost 
+                ? 'http://localhost:4001/generate-signed-url'
+                : '/api/server?action=sign';
 
-        const response = await fetch(signingEndpoint, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ url: videoUrl })
-        });
+            const response = await fetch(signingEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ url: videoUrl })
+            });
 
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-            throw new Error(errorData.error || 'Failed to generate signed URL');
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                
+                if (response.status === 404) {
+                    throw new Error('Streaming proxy not available - try without proxy');
+                } else if (response.status === 403) {
+                    throw new Error('Access denied by streaming proxy');
+                } else if (response.status >= 500) {
+                    throw new Error('Streaming proxy temporarily unavailable');
+                } else {
+                    throw new Error(errorData.error || `Proxy error (${response.status})`);
+                }
+            }
+
+            const data = await response.json();
+            
+            // Construct full URL
+            const baseUrl = isLocalhost 
+                ? 'http://localhost:4001'
+                : window.location.origin;
+            
+            return `${baseUrl}${data.signedUrl}`;
+        } catch (err) {
+            if (err.message.includes('fetch') || err.message.includes('Failed to fetch')) {
+                throw new Error('Unable to connect to streaming proxy - check your connection');
+            }
+            throw err;
         }
-
-        const data = await response.json();
-        
-        // Construct full URL
-        const baseUrl = isLocalhost 
-            ? 'http://localhost:4001'
-            : window.location.origin;
-        
-        return `${baseUrl}${data.signedUrl}`;
     }
 
     /* =======================
@@ -337,6 +392,8 @@ class StreamFlowPlayer {
             if (this.loadingTimeout) {
                 clearTimeout(this.loadingTimeout);
             }
+            this.currentLoadingState = 'metadata';
+            this.updateLoadingMessage('Loading video metadata...');
             this.showLoading();
         });
 
@@ -396,6 +453,13 @@ class StreamFlowPlayer {
         });
 
         this.video.addEventListener('waiting', () => {
+            this.currentLoadingState = 'buffering';
+            // Different message based on how much video has loaded
+            if (this.video.currentTime === 0) {
+                this.updateLoadingMessage('Preparing video...');
+            } else {
+                this.updateLoadingMessage('Buffering...');
+            }
             this.showLoading();
         });
 
@@ -405,6 +469,8 @@ class StreamFlowPlayer {
 
         this.video.addEventListener('stalled', () => {
             console.warn('Video stalled');
+            this.currentLoadingState = 'buffering';
+            this.updateLoadingMessage('Network slow - buffering...');
             // Don't show error immediately, waiting event will show loading
         });
 
@@ -428,20 +494,27 @@ class StreamFlowPlayer {
             }
 
             let errorMessage = 'Unable to load video';
+            const usingProxy = this.useProxyCheckbox?.checked;
             
             if (this.video.error) {
                 switch (this.video.error.code) {
                     case 1: // MEDIA_ERR_ABORTED
-                        errorMessage = 'Video loading aborted';
+                        errorMessage = usingProxy 
+                            ? 'Proxy connection aborted - try without proxy'
+                            : 'Video loading aborted';
                         break;
                     case 2: // MEDIA_ERR_NETWORK
-                        errorMessage = 'Network error - failed to load video';
+                        errorMessage = usingProxy
+                            ? 'Streaming proxy blocked - try disabling proxy or retry'
+                            : 'Network error - check your internet connection';
                         break;
                     case 3: // MEDIA_ERR_DECODE
-                        errorMessage = 'Video decoding error';
+                        errorMessage = 'Video decoding error - file may be corrupted or unsupported';
                         break;
                     case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
-                        errorMessage = 'Video format not supported or source unavailable';
+                        errorMessage = usingProxy
+                            ? 'Streaming proxy access denied (403) - try disabling proxy'
+                            : 'Video blocked by CORS/403 - enable proxy to access';
                         break;
                     default:
                         errorMessage = `Video error (code ${this.video.error.code})`;
@@ -620,18 +693,33 @@ class StreamFlowPlayer {
         this.playerSection.classList.remove('active');
     }
 
+    updateLoadingMessage(message) {
+        // Find or create the loading message element
+        let loadingMsg = this.loadingOverlay.querySelector('.loading-message');
+        if (!loadingMsg) {
+            // If it doesn't exist, create it
+            loadingMsg = document.createElement('div');
+            loadingMsg.className = 'loading-message';
+            this.loadingOverlay.appendChild(loadingMsg);
+        }
+        loadingMsg.textContent = message;
+    }
+
     showLoading() {
         this.loadingOverlay.classList.add('active');
     }
 
     hideLoading() {
         this.loadingOverlay.classList.remove('active');
+        this.currentLoadingState = 'idle';
     }
 
     showError(msg) {
-        this.errorText.textContent = msg;
+        // Preserve line breaks in error messages
+        this.errorText.innerHTML = msg.replace(/\n/g, '<br>');
         this.errorOverlay.classList.add('active');
         this.hideLoading();
+        this.currentLoadingState = 'idle';
     }
 
     formatTime(sec) {

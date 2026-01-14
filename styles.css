@@ -513,10 +513,11 @@ body {
     }
 }
 
-.loading-text {
-    font-size: 0.9rem;
-    color: var(--text-secondary);
-    letter-spacing: 0.05em;
+.loading-message {
+    font-size: 1rem;
+    color: var(--text-primary);
+    letter-spacing: 0.02em;
+    font-weight: 500;
 }
 
 /* Buffer indicator when paused - shows active buffering */
